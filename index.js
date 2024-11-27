@@ -15,23 +15,24 @@ const io = new Server(server, {
     methods: ["GET", "POST"],
   },
 });
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 8000;
 
 app.use(
   cors({
-    origin: process.env.MAIN_URL,
+    origin: "*",
+    methods: ["GET", "POST", "OPTIONS", "DELETE"],
+    credentials: true,
   })
 );
 
 app.use(express.json());
 
-//ffmpeg process ko dynamically start karne ke liye (with stream key)
-let ffmpeg = null;
-let streamKey = null;
+//ffmpeg process ko dynamically start karne ke liye (with stream key) {new for every user}
+const ffmpegProcesses = new Map();
 
-const createFFmpegProcess = () => {
+const createFFmpegProcess = async (userId, streamKey) => {
   if (!streamKey) {
-    console.error("Stream key is missing! FFmpeg cannot start.");
+    console.log("Stream key is missing! FFmpeg cannot start.");
     return;
   }
 
@@ -68,10 +69,10 @@ const createFFmpegProcess = () => {
     128000 / 4,
     "-f",
     "flv",
-    `rtmp://a.rtmp.youtube.com/live2/${streamKey}`, // Use the dynamic stream key
+    `rtmp://a.rtmp.youtube.com/live2/${streamKey}`, // Using the stream key dynamically
   ];
 
-  ffmpeg = spawn("ffmpeg", options);
+  const ffmpeg = spawn("ffmpeg", options);
 
   ffmpeg.stdout.on("data", (data) => {
     console.log(`FFmpeg stdout: ${data}`);
@@ -83,55 +84,83 @@ const createFFmpegProcess = () => {
 
   ffmpeg.on("close", (code, signal) => {
     console.error(`FFmpeg process exited with ${code}, ${signal}`);
-    if (code !== 0) {
-      console.error("FFmpeg exited!");
-    }
-    ffmpeg = null;
+    ffmpegProcesses.delete(userId);
   });
+
+  return ffmpeg;
 };
 
 io.on("connection", (socket) => {
   console.log("A new user started stream:", socket.id);
 
-  socket.on("streamKey", (key) => {
-    console.log("Stream key received:", key);
-    streamKey = key;
+  socket.on("streamKey", async (data) => {
+    const { streamKey, userId } = data;
+    console.log("User ID:", userId);
+    console.log("Stream key received:", streamKey);
 
-    if (!ffmpeg) {
-      createFFmpegProcess();
-    } else {
-      console.warn("FFmpeg process is already running.");
+    if (ffmpegProcesses.has(userId)) {
+      console.log("Existing ffmpeg process deleting...");
+      const existingProcess = ffmpegProcesses.get(userId);
+      await existingProcess.kill("SIGTERM"); //killling existing ffmpeg process
+      ffmpegProcesses.delete(userId);
+    }
+
+    const ffmpeg = await createFFmpegProcess(userId, streamKey);
+    if (ffmpeg) {
+      ffmpegProcesses.set(userId, ffmpeg);
+      console.log("FFmpeg process started successfully.");
     }
   });
 
-  socket.on("streamData", (data) => {
-    console.log("Stream data:", data.length, streamKey);
+  socket.on("streamData", async (data) => {
+    const { userId, streamData } = data;
+    console.log("Stream data:", streamData.length, userId);
+    const ffmpeg = ffmpegProcesses.get(userId);
 
     if (ffmpeg && ffmpeg.stdin.writable) {
-      ffmpeg.stdin.write(data, (err) => {
+      ffmpeg.stdin.write(streamData, (err) => {
         if (err) console.error("Write error:", err);
       });
     } else {
-      console.error("FFmpeg stdin is not writable. Restarting FFmpeg...");
-      createFFmpegProcess();
+      console.error("FFmpeg stdin is not writable!");
+    }
+  });
+
+  socket.on("disconnect", async () => {
+    console.log(`User ${socket.id} disconnected.`);
+    const ffmpeg = ffmpegProcesses.get(socket.id);
+    if (ffmpeg) {
+      await ffmpeg.kill("SIGTERM");
+      console.log("FFmpeg process terminated.");
+      ffmpegProcesses.delete(socket.id);
     }
   });
 });
 
-//kill ffmpeg process
-app.delete("/end-stream", (req, res) => {
-  if (ffmpeg) {
-    ffmpeg.kill("SIGINT");
-    console.log("FFmpeg process terminated.");
-    ffmpeg = null;
-    streamKey = null;
-    res
-      .status(200)
-      .json({ success: true, message: "Stream stopped successfully." });
-  } else {
-    res
+app.delete("/end-stream/:userId", async (req, res) => {
+  const { userId } = req.params;
+  console.log(userId);
+
+  if (!userId) {
+    return res
       .status(400)
-      .json({ success: false, message: "No active FFmpeg process to stop." });
+      .json({ success: false, message: "User ID is required." });
+  }
+
+  const ffmpeg = ffmpegProcesses.get(userId);
+  if (ffmpeg) {
+    await ffmpeg.kill("SIGTERM");
+    console.log(`FFmpeg process terminated.`);
+    ffmpegProcesses.delete(userId);
+    return res.status(200).json({
+      success: true,
+      message: `Stream stopped successfully.`,
+    });
+  } else {
+    return res.status(400).json({
+      success: false,
+      message: "No stream found for this user.",
+    });
   }
 });
 

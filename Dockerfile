@@ -11,4 +11,6 @@ RUN /usr/bin/apt-get update && \
 
 COPY . .
 
+RUN npm install -g nodemon
+
 CMD ["npx", "nodemon"]
