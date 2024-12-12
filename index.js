@@ -126,14 +126,19 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("disconnect", async () => {
-    console.log(`User ${socket.id} disconnected.`);
-    const ffmpeg = ffmpegProcesses.get(socket.id);
+  socket.on("endStream", async (data) => {
+    const { userId } = data;
+    console.log("userId: ", userId);
+    const ffmpeg = ffmpegProcesses.get(userId);
     if (ffmpeg) {
       await ffmpeg.kill("SIGTERM");
       console.log("FFmpeg process terminated.");
-      ffmpegProcesses.delete(socket.id);
+      ffmpegProcesses.delete(userId);
     }
+  });
+
+  socket.on("disconnect", async () => {
+    console.log(`User ${socket.id} disconnected.`);
   });
 });
 
