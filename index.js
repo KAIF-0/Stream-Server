@@ -11,7 +11,7 @@ dotenv.config();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: process.env.MAIN_URL,
+    origin: "*",
     methods: ["GET", "POST"],
   },
 });
