@@ -37,37 +37,37 @@ const createFFmpegProcess = async (userId, streamKey) => {
   }
 
   const options = [
-    "-re", // Read input at native frame rate
-    "-i", "pipe:0", // Read from stdin
-    "-f", "webm", // Input format
-    
-    // Video encoding settings
-    "-c:v", "libx264",
-    "-preset", "veryfast", // Changed from ultrafast for better quality
-    "-tune", "zerolatency",
-    "-r", "25", // Frame rate
-    "-g", "50", // GOP size (2 seconds)
-    "-keyint_min", "25",
-    "-crf", "23", // Better quality (lower = better)
-    "-pix_fmt", "yuv420p",
-    "-sc_threshold", "0",
-    "-profile:v", "high", // Changed to high for better quality
-    "-level", "4.1", // Updated level
-    "-b:v", "2500k", // Video bitrate
-    "-maxrate", "2500k",
-    "-bufsize", "5000k",
-    
-    // Audio encoding settings
-    "-c:a", "aac",
-    "-b:a", "128k",
-    "-ar", "44100", // Fixed sample rate
-    "-ac", "2", // Stereo audio
-    
-    // Output settings
-    "-f", "flv",
-    "-flvflags", "no_duration_filesize",
-    `rtmp://a.rtmp.youtube.com/live2/${streamKey}`,
-  ];
+  "-re", // read input at native frame rate
+  "-f", "webm", // input format from browser
+  "-use_wallclock_as_timestamps", "1",
+  "-thread_queue_size", "1024",
+  "-i", "pipe:0",
+
+  // Video
+  "-c:v", "libx264",
+  "-preset", "veryfast",
+  "-tune", "zerolatency",
+  "-b:v", "3500k",
+  "-maxrate", "3500k",
+  "-bufsize", "7000k",
+  "-pix_fmt", "yuv420p",
+  "-r", "30",
+  "-g", "60",
+  "-keyint_min", "30",
+  "-profile:v", "high",
+  "-level", "4.1",
+
+  // Audio
+  "-c:a", "aac",
+  "-b:a", "128k",
+  "-ar", "44100",
+  "-ac", "2",
+
+  "-f", "flv",
+  `rtmp://a.rtmp.youtube.com/live2/${streamKey}`,
+];
+
+
 
   const ffmpeg = spawn("ffmpeg", options, {
     stdio: ['pipe', 'pipe', 'pipe']
